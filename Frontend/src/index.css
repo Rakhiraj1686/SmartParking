@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+
+@theme {
+  --font-display: "Space Grotesk", "Inter", sans-serif;
+  --font-sans: "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --color-ink: #0F211B;
+  --color-ink-soft: #4C5D57;
+  --color-mist: #EFF4F1;
+  --color-canvas: #F6F8F6;
+  --color-surface: #FFFFFF;
+  --color-line: #E1E9E4;
+
+  --color-brand: #0E7C5D;
+  --color-brand-dark: #0A5F47;
+  --color-brand-deep: #0B1B17;
+
+  --color-available: #1FAA59;
+  --color-available-soft: #E4F6EB;
+  --color-occupied: #E0403F;
+  --color-occupied-soft: #FCE7E6;
+  --color-reserved: #DB8A0B;
+  --color-reserved-soft: #FBEDD6;
+  --color-selected: #2F6FED;
+  --color-selected-soft: #E5EEFF;
+}
+
+html {
+  background: var(--color-canvas);
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: var(--color-brand);
+  color: white;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-mono-slot {
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
+.input {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-line);
+  background: var(--color-surface);
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+}
+.input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand) 30%, transparent);
+  border-color: var(--color-brand);
+}
+
+.circuit-grid {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(255,255,255,0.09) 1px, transparent 0);
+  background-size: 18px 18px;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.pulse-dot {
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.rise-in {
+  animation: rise-in 0.28s ease-out both;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.toast-in {
+  animation: toast-in 0.22s ease-out both;
+}
