@@ -7,7 +7,7 @@ import {
   createBooking as createBookingService,
   cancelBooking as cancelBookingService,
   markNotificationsRead as markNotificationsReadService,
-  simulateSensorDrift,
+  subscribeToParkingUpdates,
 } from '../services/parkingService';
 import { PARKING_AREA, userProfile } from '../data/mockData';
 
@@ -43,15 +43,10 @@ export function ParkingProvider({ children }) {
     loadAll();
   }, [loadAll]);
 
-  // Simulate the ESP32/WebSocket "live" feed nudging slot statuses.
   useEffect(() => {
-    driftRef.current = setInterval(async () => {
-      const updated = await simulateSensorDrift();
-      if (!updated) return;
-      setSlots((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-    }, 9000);
-    return () => clearInterval(driftRef.current);
-  }, []);
+    driftRef.current = subscribeToParkingUpdates(() => loadAll());
+    return () => driftRef.current();
+  }, [loadAll]);
 
   const pushToast = useCallback((message, variant = 'success') => {
     const id = ++toastId;

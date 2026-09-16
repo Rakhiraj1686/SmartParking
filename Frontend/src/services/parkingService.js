@@ -1,196 +1,111 @@
-// -----------------------------------------------------------------------
-// parkingService.js
-//
-// This is the ONLY file that should need to change when a real backend
-// is introduced. Every function below currently reads/writes the in-memory
-// mock arrays and resolves like a network call (small artificial delay),
-// so the rest of the app already talks to it as if it were async.
-//
-// Planned future architecture:
-//
-//   Arduino / ESP32 (ultrasonic + IR sensors per slot)
-//         |  (serial / MQTT)
-//         v
-//   Backend API + WebSocket server (Node/Express, Firebase, etc.)
-//         |  (REST for actions, WebSocket for live status)
-//         v
-//   React Dashboard  <-- this app
-//
-// To connect it for real:
-//   1. Replace the mock arrays with `fetch('/api/slots')` etc.
-//   2. Replace `simulateSensorDrift()` with a WebSocket subscription that
-//      pushes { slotId, status } updates from the ESP32 gateway.
-//   3. Keep the function names/signatures the same so no page component
-//      needs to change — they already only depend on this service.
-// -----------------------------------------------------------------------
+import { io } from 'socket.io-client';
 
-import {
-  initialParkingSlots,
-  initialBookings,
-  parkingHistory,
-  initialNotifications,
-} from '../data/mockData';
+const API_URL = import.meta.env.VITE_API_URL || '';
+const TOKEN_KEY = 'smart-parking-token';
+const DEMO_EMAIL = import.meta.env.VITE_DEMO_EMAIL || 'arjun@example.com';
+const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD || 'Demo@123';
 
-const NETWORK_DELAY = 350;
+let tokenPromise;
 
-// In-memory "database" — swap for real API calls later.
-let slots = initialParkingSlots.map((s) => ({ ...s }));
-let bookings = initialBookings.map((b) => ({ ...b }));
-let notifications = initialNotifications.map((n) => ({ ...n }));
-let bookingCounter = 10232;
-
-function delay(value) {
-  return new Promise((resolve) => setTimeout(() => resolve(value), NETWORK_DELAY));
+async function request(path, options = {}, requiresAuth = false) {
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  if (requiresAuth) {
+    const token = await getToken();
+    headers.Authorization = `Bearer ${token}`;
+  }
+  const response = await fetch(`${API_URL}/api${path}`, { ...options, headers });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || `Request failed (${response.status})`);
+  return body.data ?? body;
 }
 
-function clone(value) {
-  return JSON.parse(JSON.stringify(value));
+async function getToken() {
+  const stored = localStorage.getItem(TOKEN_KEY);
+  if (stored) return stored;
+  if (!tokenPromise) {
+    tokenPromise = request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: DEMO_EMAIL, password: DEMO_PASSWORD }),
+    }).then((data) => {
+      localStorage.setItem(TOKEN_KEY, data.token);
+      return data.token;
+    }).finally(() => { tokenPromise = null; });
+  }
+  return tokenPromise;
 }
 
-// ---- Slots -------------------------------------------------------------
+function normalizeSlot(slot) {
+  const number = slot.slotNumber || slot.id;
+  const numericId = Number(String(number).replace(/\D/g, ''));
+  return { ...slot, id: number, slotId: number, price: slot.pricePerHour ?? slot.price ?? 40, zone: numericId <= 12 ? 'A' : numericId <= 24 ? 'B' : 'C', floor: 'Ground Floor', vehicleType: slot.vehicleType || null, reservedUntil: slot.reservedUntil || null };
+}
 
-/** GET /api/slots — mirrors what an ESP32 gateway would report per bay. */
+function normalizeBooking(booking) {
+  return { ...booking, id: booking.bookingId || booking.id, slotId: booking.slotNumber || booking.slotId, date: booking.bookingDate || booking.date };
+}
+
+function normalizeNotification(notification) {
+  return { ...notification, id: notification._id || notification.id, timestamp: notification.timestamp || notification.createdAt || 'Just now' };
+}
+
 export function getParkingSlots() {
-  return delay(clone(slots));
+  return request('/parking/slots').then((slots) => slots.map(normalizeSlot));
 }
 
-/** GET /api/slots/:id */
 export function getSlotStatus(slotId) {
-  const slot = slots.find((s) => s.id === slotId);
-  return delay(slot ? clone(slot) : null);
+  return getParkingSlots().then((slots) => slots.find((slot) => slot.id === slotId) || null);
 }
-
-// ---- Bookings ------------------------------------------------------------
 
 export function getBookings() {
-  return delay(clone(bookings));
+  return request('/bookings/my', {}, true).then((bookings) => bookings.map(normalizeBooking));
 }
 
-/**
- * POST /api/bookings
- * Marks the slot reserved and creates a booking record.
- * In production this is the point where the backend would also notify
- * the Arduino gateway (e.g. light up the slot's reserved LED).
- */
-export function createBooking({ slotId, date, startTime, endTime, vehicleType, vehicleNumber }) {
-  const slot = slots.find((s) => s.id === slotId);
-  if (!slot || slot.status !== 'available') {
-    return delay({ success: false, message: 'Slot is no longer available.' });
+export async function createBooking({ slotId, date, startTime, endTime, vehicleType, vehicleNumber }) {
+  try {
+    const data = await request('/bookings', { method: 'POST', body: JSON.stringify({ slotNumber: slotId, bookingDate: date, startTime, endTime, vehicleType, vehicleNumber }) }, true);
+    return { success: true, booking: normalizeBooking(data.booking) };
+  } catch (error) {
+    return { success: false, message: error.message };
   }
-
-  slot.status = 'reserved';
-  slot.vehicleType = vehicleType;
-  slot.reservedUntil = endTime;
-
-  bookingCounter += 1;
-  const booking = {
-    id: `BK-${bookingCounter}`,
-    slotId,
-    date,
-    startTime,
-    endTime,
-    vehicleType,
-    vehicleNumber,
-    amount: estimatePrice(slot.price, startTime, endTime),
-    status: 'upcoming',
-  };
-  bookings = [booking, ...bookings];
-
-  notifications = [
-    {
-      id: `N-${Date.now()}`,
-      type: 'success',
-      message: `Slot ${slotId} has been successfully booked.`,
-      timestamp: 'Just now',
-      read: false,
-    },
-    ...notifications,
-  ];
-
-  return delay({ success: true, booking: clone(booking) });
 }
 
-/**
- * POST /api/bookings/:id/cancel
- * Frees the slot back to "available" and updates the booking record.
- */
-export function cancelBooking(bookingId) {
-  const booking = bookings.find((b) => b.id === bookingId);
-  if (!booking) return delay({ success: false, message: 'Booking not found.' });
-
-  booking.status = 'cancelled';
-
-  const slot = slots.find((s) => s.id === booking.slotId);
-  if (slot) {
-    slot.status = 'available';
-    slot.vehicleType = null;
-    slot.reservedUntil = null;
+export async function cancelBooking(bookingId) {
+  try {
+    const booking = await request(`/bookings/${bookingId}/cancel`, { method: 'PATCH' }, true);
+    return { success: true, booking: normalizeBooking(booking) };
+  } catch (error) {
+    return { success: false, message: error.message };
   }
-
-  notifications = [
-    {
-      id: `N-${Date.now()}`,
-      type: 'info',
-      message: `Booking ${bookingId} was cancelled. Slot ${booking.slotId} is available again.`,
-      timestamp: 'Just now',
-      read: false,
-    },
-    ...notifications,
-  ];
-
-  return delay({ success: true, booking: clone(booking) });
 }
 
 export function estimatePrice(pricePerHour, startTime, endTime) {
-  const toMinutes = (t) => {
-    const match = /(\d+):(\d+)\s?(AM|PM)/i.exec(t);
+  const toMinutes = (time) => {
+    const match = /(\d+):(\d+)\s?(AM|PM)/i.exec(time);
     if (!match) return null;
-    let [, h, m, period] = match;
-    h = parseInt(h, 10) % 12;
-    if (period.toUpperCase() === 'PM') h += 12;
-    return h * 60 + parseInt(m, 10);
+    let hours = parseInt(match[1], 10) % 12;
+    if (match[3].toUpperCase() === 'PM') hours += 12;
+    return hours * 60 + parseInt(match[2], 10);
   };
   const start = toMinutes(startTime);
   const end = toMinutes(endTime);
   if (start === null || end === null || end <= start) return pricePerHour;
-  const hours = Math.max(1, Math.ceil((end - start) / 60));
-  return hours * pricePerHour;
+  return Math.max(1, Math.ceil((end - start) / 60)) * pricePerHour;
 }
-
-// ---- History -------------------------------------------------------------
 
 export function getParkingHistory() {
-  return delay(clone(parkingHistory));
+  return request('/sessions/my', {}, true).then((sessions) => sessions.map((session) => ({ ...session, id: session._id || session.id, slotId: session.slotNumber || session.slotId || 'Unassigned', entryTime: session.entryTime ? new Date(session.entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-', exitTime: session.exitTime ? new Date(session.exitTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-', duration: session.duration || (session.durationMinutes ? `${Math.floor(session.durationMinutes / 60)}h ${session.durationMinutes % 60}m` : '-'), status: session.status === 'completed' ? 'Completed' : session.status })));
 }
 
-// ---- Notifications ---------------------------------------------------------
-
 export function getNotifications() {
-  return delay(clone(notifications));
+  return request('/notifications', {}, true).then((notifications) => notifications.map(normalizeNotification));
 }
 
 export function markNotificationsRead() {
-  notifications = notifications.map((n) => ({ ...n, read: true }));
-  return delay(clone(notifications));
+  return request('/notifications/read-all', { method: 'PATCH' }, true).then((notifications) => notifications.map(normalizeNotification));
 }
 
-// ---- Live sensor simulation ------------------------------------------------
-
-/**
- * Simulates the kind of periodic push a WebSocket connection to the
- * Arduino/ESP32 gateway would deliver: a random available slot flips to
- * occupied, or a random occupied slot frees up. Call this on an interval
- * to make the dashboard feel "live" without a backend.
- *
- * Replace with: socket.on('slot-update', ({ slotId, status }) => { ... })
- */
-export function simulateSensorDrift() {
-  const candidates = slots.filter((s) => s.status !== 'reserved');
-  if (candidates.length === 0) return delay(null);
-  const target = candidates[Math.floor(Math.random() * candidates.length)];
-  target.status = target.status === 'available' ? 'occupied' : 'available';
-  target.vehicleType = target.status === 'occupied'
-    ? ['Car', 'Bike', 'SUV', 'EV'][Math.floor(Math.random() * 4)]
-    : null;
-  return delay(clone(target));
+export function subscribeToParkingUpdates(onStatusUpdate) {
+  const socket = io(API_URL || window.location.origin, { transports: ['websocket', 'polling'] });
+  socket.on('parkingStatusUpdated', onStatusUpdate);
+  return () => socket.close();
 }
