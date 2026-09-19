@@ -3,7 +3,9 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 const { Server } = require('socket.io');
+const User = require('./models/User');
 
 const connectDB = require('./config/db');
 const initParkingSocket = require('./sockets/parkingSocket');
@@ -26,6 +28,27 @@ const io = new Server(server, {
   cors: { origin: FRONTEND_URL, methods: ['GET', 'POST'] },
 });
 app.set('io', io);
+
+// Socket auth is OPTIONAL: an unauthenticated/guest socket can still
+// receive the public `parkingStatusUpdated` broadcast. If a valid JWT is
+// supplied in the handshake, we attach the user and (if admin) join the
+// 'admins' room, which is the only audience for admin-only events (see
+// sockets/parkingSocket.js and controllers/iotController.js).
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token;
+    if (!token) return next();
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.userId);
+    if (user) socket.user = { id: String(user._id), role: user.role };
+    return next();
+  } catch {
+    // Invalid/expired token: treat as a guest connection rather than
+    // rejecting outright, since parkingStatusUpdated is public.
+    return next();
+  }
+});
 
 app.use(cors({ origin: FRONTEND_URL }));
 app.use(express.json());

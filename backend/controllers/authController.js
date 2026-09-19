@@ -3,7 +3,8 @@ const { validationResult } = require('express-validator');
 const User = require('../models/User');
 
 function signToken(user) {
-  return jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
+  // Payload shape is part of the contract with the frontend: { userId, role }
+  return jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   });
 }
@@ -15,6 +16,10 @@ async function register(req, res, next) {
       return res.status(400).json({ success: false, message: errors.array()[0].msg });
     }
 
+    // Deliberately do NOT destructure `role` from req.body — public
+    // registration must never be able to self-assign a role. Every new
+    // account is created as 'user'; only an existing admin can promote
+    // someone via PATCH /api/admin/users/:id/role.
     const { name, email, password, phone, vehicleNumber, vehicleType } = req.body;
 
     const existing = await User.findOne({ email: email.toLowerCase() });
@@ -22,7 +27,7 @@ async function register(req, res, next) {
       return res.status(409).json({ success: false, message: 'An account with this email already exists.' });
     }
 
-    const user = await User.create({ name, email, password, phone, vehicleNumber, vehicleType });
+    const user = await User.create({ name, email, password, phone, vehicleNumber, vehicleType, role: 'user' });
     const token = signToken(user);
 
     res.status(201).json({

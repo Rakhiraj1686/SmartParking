@@ -48,7 +48,7 @@ async function seed() {
   console.log('[seed] Creating admin + demo users...');
   const admin = await User.create({
     name: 'Admin',
-    email: 'admin@smartparking.local',
+    email: 'admin@smartparking.com',
     password: 'Admin@123',
     phone: '+91 90000 00000',
     vehicleNumber: 'MP09 ZZ 0000',
@@ -133,7 +133,12 @@ async function seed() {
   ]);
 
   console.log('[seed] Done.');
-  console.log('[seed] Admin login: admin@smartparking.local / Admin@123');
+  console.log('[seed] ---------------------------------------------------------');
+  console.log('[seed] DEMO admin login: admin@smartparking.com / Admin@123');
+  console.log('[seed] These are DEMO credentials only — change the password (or');
+  console.log('[seed] promote a different account via PATCH /api/admin/users/:id/role');
+  console.log('[seed] and delete this one) before any real deployment.');
+  console.log('[seed] ---------------------------------------------------------');
   console.log('[seed] Demo user login: arjun@example.com / Demo@123');
 
   await mongoose.connection.close();

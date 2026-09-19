@@ -1,4 +1,5 @@
 const iotService = require('../services/iotService');
+const IotLog = require('../models/IotLog');
 
 async function postStatus(req, res, next) {
   try {
@@ -21,6 +22,17 @@ async function postStatus(req, res, next) {
     io.emit('parkingStatusUpdated', { ...payload, timestamp: new Date().toISOString() });
     if (payload.availableSlots === 0) io.emit('parkingFull', { timestamp: new Date().toISOString() });
     if (payload.availableSlots > 0) io.emit('parkingAvailable', { availableSlots: payload.availableSlots });
+
+    // Admin-only real-time feed (restricted to the 'admins' room; see
+    // sockets/parkingSocket.js).
+    const recentLogs = await IotLog.find().sort({ createdAt: -1 }).limit(20);
+    io.to('admins').emit('adminIotUpdate', {
+      online: true,
+      lastArduinoUpdate: new Date().toISOString(),
+      occupiedSlots: payload.occupiedSlots,
+      totalCapacity: payload.totalCapacity,
+      recentLogs,
+    });
 
     res.status(200).json({
       success: true,

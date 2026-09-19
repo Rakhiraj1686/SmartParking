@@ -1,5 +1,6 @@
 const parkingService = require('./parkingService');
 const Notification = require('../models/Notification');
+const IotLog = require('../models/IotLog');
 
 /**
  * Handles POST /api/iot/status payloads from the Arduino/ESP gateway.
@@ -26,6 +27,12 @@ async function handleStatusUpdate(body) {
   }
 
   const payload = parkingService.toStatusPayload(parking);
+
+  await IotLog.record(
+    `Occupied = ${payload.occupiedSlots}`,
+    payload.occupiedSlots,
+    payload.totalCapacity
+  );
 
   // Generate system notifications for full / newly-available states.
   if (payload.availableSlots === 0) {
