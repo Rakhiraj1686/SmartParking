@@ -26,10 +26,12 @@ async function create(req, res, next) {
       return res.status(409).json({ success: false, message: result.message });
     }
 
+    const statusPayload = await parkingService.toStatusPayload(result.parking);
+
     const io = req.app.get('io');
     io.emit('bookingCreated', { booking: result.booking });
-    io.emit('parkingStatusUpdated', parkingService.toStatusPayload(result.parking));
-    if (result.parking.bookableSlots() === 0) io.emit('parkingFull', { reason: 'no bookable capacity' });
+    io.emit('parkingStatusUpdated', { ...statusPayload, timestamp: new Date().toISOString() });
+    if (statusPayload.bookableSlots === 0) io.emit('parkingFull', { reason: 'no bookable capacity right now' });
 
     res.status(201).json({ success: true, message: 'Parking space reserved', data: { booking: result.booking } });
   } catch (err) {
@@ -73,10 +75,12 @@ async function cancel(req, res, next) {
       return res.status(result.status || 400).json({ success: false, message: result.message });
     }
 
+    const statusPayload = await parkingService.toStatusPayload(result.parking);
+
     const io = req.app.get('io');
     io.emit('bookingCancelled', { booking: result.booking });
-    io.emit('parkingStatusUpdated', parkingService.toStatusPayload(result.parking));
-    io.emit('parkingAvailable', { availableSlots: result.parking.availableSlots() });
+    io.emit('parkingStatusUpdated', { ...statusPayload, timestamp: new Date().toISOString() });
+    io.emit('parkingAvailable', { availableSlots: statusPayload.availableSlots });
 
     res.status(200).json({ success: true, message: 'Booking cancelled', data: result.booking });
   } catch (err) {

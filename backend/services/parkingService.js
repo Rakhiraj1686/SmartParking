@@ -1,7 +1,10 @@
 const Parking = require('../models/Parking');
 const ParkingSlot = require('../models/ParkingSlot');
+const Booking = require('../models/Booking');
+const { timeWindowsOverlap, isWithinWindowNow } = require('../utils/timeOverlap');
 
 const TOTAL_SLOTS = parseInt(process.env.TOTAL_SLOTS, 10) || 4;
+const ACTIVE_BOOKING_STATUSES = ['upcoming', 'active'];
 
 /** Gets the singleton aggregate parking document, creating it if missing. */
 async function getOrCreateParking() {
@@ -18,14 +21,47 @@ async function getOrCreateParking() {
   return parking;
 }
 
+/**
+ * "Reserved right now" — how many physical bays currently have a
+ * non-cancelled booking whose time window includes this exact moment,
+ * today. This is a live count (not a persisted counter), because a
+ * booking only actually holds a bay during its own date/time window —
+ * see findAvailableSlotForWindow() for the logic that actually prevents
+ * double-booking a slot.
+ */
+async function countLiveReservedSlots() {
+  const today = new Date().toISOString().slice(0, 10);
+  const todaysBookings = await Booking.find({
+    bookingDate: today,
+    status: { $in: ACTIVE_BOOKING_STATUSES },
+  }).select('slotNumber startTime endTime');
+
+  const reservedSlotNumbers = new Set();
+  for (const b of todaysBookings) {
+    if (isWithinWindowNow(b.startTime, b.endTime)) {
+      reservedSlotNumbers.add(b.slotNumber);
+    }
+  }
+  return reservedSlotNumbers.size;
+}
+
 /** Shapes the aggregate document into the /api/parking/status response. */
-function toStatusPayload(parking) {
+async function toStatusPayload(parking) {
+  const reservedSlots = await countLiveReservedSlots();
+  const availableSlots = Math.max(0, parking.totalCapacity - parking.occupiedSlots);
+  const bookableSlots = Math.max(0, parking.totalCapacity - parking.occupiedSlots - reservedSlots);
+
   return {
     totalCapacity: parking.totalCapacity,
     occupiedSlots: parking.occupiedSlots,
-    availableSlots: parking.availableSlots(),
-    reservedSlots: parking.reservedSlots,
-    bookableSlots: parking.bookableSlots(),
+    availableSlots,
+    // "Reserved" here means "physically held by a booking right now" —
+    // NOT a lifetime count of every upcoming booking (a slot booked for
+    // tomorrow doesn't reduce today's bookable capacity; see
+    // findAvailableSlotForWindow, which is what actually prevents
+    // double-booking a slot for an overlapping time window).
+    reservedSlots,
+    bookableSlots,
     lastArduinoUpdate: parking.lastArduinoUpdate,
   };
 }
@@ -79,46 +115,46 @@ async function applySlotSensorUpdate(slotsPayload) {
   return parking;
 }
 
-/** Reserves one unit of bookable capacity (and, if a free ParkingSlot document exists, marks one 'reserved' for the frontend's per-slot UI). */
-async function reserveCapacity(preferredSlotNumber) {
-  const parking = await getOrCreateParking();
-  if (parking.bookableSlots() <= 0) {
-    return { ok: false, message: 'No bookable parking capacity is currently available.' };
+/**
+ * Finds a physical ParkingSlot that has NO conflicting (upcoming/active)
+ * booking overlapping the requested [startTime,endTime] on bookingDate.
+ * This is what actually prevents double-booking — e.g. a slot booked
+ * 09:00–11:00 today is still free for 14:00–16:00 the same day.
+ *
+ * If preferredSlotNumber is given, only that slot is checked (so the
+ * caller gets an honest "that slot is taken for that time" rejection
+ * instead of silently picking a different one). Otherwise every slot is
+ * checked in slotNumber order and the first free one is returned.
+ */
+async function findAvailableSlotForWindow({ slotNumber, bookingDate, startTime, endTime }) {
+  const candidates = slotNumber
+    ? await ParkingSlot.find({ slotNumber })
+    : await ParkingSlot.find().sort({ slotNumber: 1 });
+
+  if (slotNumber && candidates.length === 0) {
+    return { ok: false, message: `No parking slot ${slotNumber} exists.` };
   }
 
-  let slot = null;
-  if (preferredSlotNumber) {
-    slot = await ParkingSlot.findOne({ slotNumber: preferredSlotNumber, status: 'available' });
-  }
-  if (!slot) {
-    slot = await ParkingSlot.findOne({ status: 'available' });
-  }
-  if (!slot) {
-    return { ok: false, message: 'No parking slot record is available to reserve.' };
+  for (const slot of candidates) {
+    // eslint-disable-next-line no-await-in-loop
+    const conflicts = await Booking.find({
+      slotNumber: slot.slotNumber,
+      bookingDate,
+      status: { $in: ACTIVE_BOOKING_STATUSES },
+    }).select('startTime endTime');
+
+    const hasConflict = conflicts.some((b) => timeWindowsOverlap(startTime, endTime, b.startTime, b.endTime));
+    if (!hasConflict) {
+      return { ok: true, slot };
+    }
   }
 
-  slot.status = 'reserved';
-  slot.lastUpdated = new Date();
-  await slot.save();
-
-  parking.reservedSlots += 1;
-  await parking.save();
-
-  return { ok: true, slot, parking };
-}
-
-/** Releases a previously reserved capacity unit / slot back to available. */
-async function releaseCapacity(slotId) {
-  const parking = await getOrCreateParking();
-  const slot = await ParkingSlot.findById(slotId);
-  if (slot && slot.status === 'reserved') {
-    slot.status = 'available';
-    slot.lastUpdated = new Date();
-    await slot.save();
-  }
-  parking.reservedSlots = Math.max(0, parking.reservedSlots - 1);
-  await parking.save();
-  return { slot, parking };
+  return {
+    ok: false,
+    message: slotNumber
+      ? `Slot ${slotNumber} is already booked for an overlapping time on ${bookingDate}.`
+      : `No parking slot is free for ${startTime}–${endTime} on ${bookingDate}.`,
+  };
 }
 
 module.exports = {
@@ -127,6 +163,6 @@ module.exports = {
   toStatusPayload,
   applyArduinoStatus,
   applySlotSensorUpdate,
-  reserveCapacity,
-  releaseCapacity,
+  findAvailableSlotForWindow,
+  countLiveReservedSlots,
 };

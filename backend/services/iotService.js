@@ -26,7 +26,7 @@ async function handleStatusUpdate(body) {
     });
   }
 
-  const payload = parkingService.toStatusPayload(parking);
+  const payload = await parkingService.toStatusPayload(parking);
 
   await IotLog.record(
     `Occupied = ${payload.occupiedSlots}`,

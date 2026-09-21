@@ -72,9 +72,11 @@ async function seed() {
   const [slotA, slotB] = slots;
   const demoBookings = [];
   if (slotA) {
-    slotA.status = 'reserved';
-    await slotA.save();
-    parking.reservedSlots += 1;
+    // Slot status is no longer permanently flipped to 'reserved' by a
+    // booking — a booking only holds its slot during its own date/time
+    // window (see backend/services/parkingService.js). Whether this
+    // shows as "reserved" live just depends on whether `now` falls
+    // inside 09:00 AM–11:00 AM today when you check /api/parking/status.
     demoBookings.push(
       await Booking.create({
         bookingId: 'BK-10231',

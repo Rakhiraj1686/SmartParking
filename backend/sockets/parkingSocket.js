@@ -22,8 +22,9 @@ function initParkingSocket(io) {
 
     try {
       const parking = await parkingService.getOrCreateParking();
+      const statusPayload = await parkingService.toStatusPayload(parking);
       socket.emit('parkingStatusUpdated', {
-        ...parkingService.toStatusPayload(parking),
+        ...statusPayload,
         timestamp: new Date().toISOString(),
       });
 

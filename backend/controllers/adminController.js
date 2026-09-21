@@ -11,7 +11,7 @@ const parkingService = require('../services/parkingService');
 async function dashboard(req, res, next) {
   try {
     const parking = await parkingService.getOrCreateParking();
-    const status = parkingService.toStatusPayload(parking);
+    const status = await parkingService.toStatusPayload(parking);
 
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
@@ -261,7 +261,7 @@ const ARDUINO_ONLINE_WINDOW_MS = 60 * 1000; // consider "online" if updated in t
 async function getIotStatus(req, res, next) {
   try {
     const parking = await parkingService.getOrCreateParking();
-    const status = parkingService.toStatusPayload(parking);
+    const status = await parkingService.toStatusPayload(parking);
 
     const isOnline =
       !!parking.lastArduinoUpdate && Date.now() - new Date(parking.lastArduinoUpdate).getTime() < ARDUINO_ONLINE_WINDOW_MS;

@@ -1,111 +1,242 @@
+// -----------------------------------------------------------------------
+// parkingService.js
+//
+// This is the ONLY file that needed to change to connect the real
+// backend (per this file's own original plan comment). Function
+// names/signatures are kept identical to the mock-data version so no
+// page component had to change.
+//
+// IMPORTANT — hardware reality:
+// The current Arduino (2 IR sensors) only reports a TOTAL occupied count,
+// never which individual bay (P01..P04) is occupied. The backend's
+// ParkingSlot records therefore only ever carry 'available' or
+// 'reserved' (booking-driven) status from the real API — never
+// 'occupied'. Because this UI was built assuming per-slot sensors, we
+// layer a purely VISUAL 'occupied' flag onto that many currently
+// "available" slots so the on-screen counts (Available/Occupied/Reserved)
+// add up to match the real Arduino aggregate. This does NOT mean the
+// backend knows which physical bay is occupied — see backend/README.md.
+// This simplification goes away entirely once real per-slot sensors are
+// added (backend already supports that payload shape).
+// -----------------------------------------------------------------------
+
 import { io } from 'socket.io-client';
+import { apiRequest, API_URL, getToken } from './api';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
-const TOKEN_KEY = 'smart-parking-token';
-const DEMO_EMAIL = import.meta.env.VITE_DEMO_EMAIL || 'arjun@example.com';
-const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD || 'Demo@123';
+let socket = null;
 
-let tokenPromise;
-
-async function request(path, options = {}, requiresAuth = false) {
-  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
-  if (requiresAuth) {
-    const token = await getToken();
-    headers.Authorization = `Bearer ${token}`;
+function getSocket() {
+  if (!socket) {
+    socket = io(API_URL, {
+      autoConnect: true,
+      transports: ['websocket', 'polling'],
+      auth: { token: getToken() },
+    });
   }
-  const response = await fetch(`${API_URL}/api${path}`, { ...options, headers });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || `Request failed (${response.status})`);
-  return body.data ?? body;
+  return socket;
 }
 
-async function getToken() {
-  const stored = localStorage.getItem(TOKEN_KEY);
-  if (stored) return stored;
-  if (!tokenPromise) {
-    tokenPromise = request('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email: DEMO_EMAIL, password: DEMO_PASSWORD }),
-    }).then((data) => {
-      localStorage.setItem(TOKEN_KEY, data.token);
-      return data.token;
-    }).finally(() => { tokenPromise = null; });
+/** Subscribes to live backend push events. Returns an unsubscribe function. */
+export function subscribeToLiveUpdates(handlers) {
+  const s = getSocket();
+  if (handlers.onStatus) s.on('parkingStatusUpdated', handlers.onStatus);
+  if (handlers.onBookingCreated) s.on('bookingCreated', handlers.onBookingCreated);
+  if (handlers.onBookingCancelled) s.on('bookingCancelled', handlers.onBookingCancelled);
+  if (handlers.onParkingFull) s.on('parkingFull', handlers.onParkingFull);
+  if (handlers.onParkingAvailable) s.on('parkingAvailable', handlers.onParkingAvailable);
+
+  return () => {
+    if (handlers.onStatus) s.off('parkingStatusUpdated', handlers.onStatus);
+    if (handlers.onBookingCreated) s.off('bookingCreated', handlers.onBookingCreated);
+    if (handlers.onBookingCancelled) s.off('bookingCancelled', handlers.onBookingCancelled);
+    if (handlers.onParkingFull) s.off('parkingFull', handlers.onParkingFull);
+    if (handlers.onParkingAvailable) s.off('parkingAvailable', handlers.onParkingAvailable);
+  };
+}
+
+/** Admin-only real-time feed. Server only emits this to sockets whose JWT resolved to role === 'admin' (see backend/sockets/parkingSocket.js). */
+export function subscribeToAdminUpdates(onAdminIotUpdate) {
+  const s = getSocket();
+  s.on('adminIotUpdate', onAdminIotUpdate);
+  return () => s.off('adminIotUpdate', onAdminIotUpdate);
+}
+
+function mapSlot(raw) {
+  return {
+    id: raw.slotNumber,
+    _id: raw._id,
+    zone: 'A', // only 4 physical bays today; kept as a single zone
+    status: raw.status, // 'available' | 'reserved' from the real API
+    price: raw.pricePerHour,
+    vehicleType: null, // not known per-slot until real sensors exist
+    reservedUntil: null,
+    floor: 'Ground Floor',
+  };
+}
+
+function mapBooking(raw) {
+  return {
+    id: raw.bookingId,
+    slotId: raw.slotNumber,
+    date: raw.bookingDate,
+    startTime: raw.startTime,
+    endTime: raw.endTime,
+    vehicleType: raw.vehicleType,
+    vehicleNumber: raw.vehicleNumber,
+    amount: raw.amount,
+    status: raw.status,
+  };
+}
+
+function mapNotification(raw) {
+  return {
+    id: raw._id,
+    type: raw.type,
+    message: raw.message,
+    timestamp: new Date(raw.createdAt).toLocaleString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true }),
+    read: raw.read,
+  };
+}
+
+// ---- Slots ----------------------------------------------------------------
+
+/** GET /api/parking/slots + /api/parking/status, merged for the existing per-slot UI. */
+export async function getParkingSlots() {
+  const [slotsRes, statusRes] = await Promise.all([
+    apiRequest('/api/parking/slots'),
+    apiRequest('/api/parking/status'),
+  ]);
+
+  const slots = slotsRes.data.map(mapSlot);
+  const { occupiedSlots, reservedSlots } = statusRes.data;
+
+  // Visually flag `occupiedSlots` many currently-available slots as
+  // "occupied", then `reservedSlots` many of what's left as "reserved",
+  // so the dashboard's per-slot-derived counts match the real backend
+  // aggregate (occupied = Arduino count; reserved = bookings whose time
+  // window covers right now — see backend/services/parkingService.js).
+  // Individual ParkingSlot records themselves no longer carry a
+  // persistent 'reserved' status once a booking is made, because a
+  // booking only holds its slot during its own date/time window, not
+  // forever — see backend/README.md.
+  let toOccupy = occupiedSlots;
+  for (const slot of slots) {
+    if (toOccupy <= 0) break;
+    if (slot.status === 'available') {
+      slot.status = 'occupied';
+      toOccupy -= 1;
+    }
   }
-  return tokenPromise;
+
+  let toReserve = reservedSlots;
+  for (const slot of slots) {
+    if (toReserve <= 0) break;
+    if (slot.status === 'available') {
+      slot.status = 'reserved';
+      toReserve -= 1;
+    }
+  }
+
+  return slots;
 }
 
-function normalizeSlot(slot) {
-  const number = slot.slotNumber || slot.id;
-  const numericId = Number(String(number).replace(/\D/g, ''));
-  return { ...slot, id: number, slotId: number, price: slot.pricePerHour ?? slot.price ?? 40, zone: numericId <= 12 ? 'A' : numericId <= 24 ? 'B' : 'C', floor: 'Ground Floor', vehicleType: slot.vehicleType || null, reservedUntil: slot.reservedUntil || null };
+export async function getSlotStatus(slotId) {
+  const slots = await getParkingSlots();
+  return slots.find((s) => s.id === slotId) || null;
 }
 
-function normalizeBooking(booking) {
-  return { ...booking, id: booking.bookingId || booking.id, slotId: booking.slotNumber || booking.slotId, date: booking.bookingDate || booking.date };
+// ---- Bookings ---------------------------------------------------------
+
+export async function getBookings() {
+  const res = await apiRequest('/api/bookings/my');
+  return res.data.map(mapBooking);
 }
 
-function normalizeNotification(notification) {
-  return { ...notification, id: notification._id || notification.id, timestamp: notification.timestamp || notification.createdAt || 'Just now' };
-}
-
-export function getParkingSlots() {
-  return request('/parking/slots').then((slots) => slots.map(normalizeSlot));
-}
-
-export function getSlotStatus(slotId) {
-  return getParkingSlots().then((slots) => slots.find((slot) => slot.id === slotId) || null);
-}
-
-export function getBookings() {
-  return request('/bookings/my', {}, true).then((bookings) => bookings.map(normalizeBooking));
-}
-
+/**
+ * Creates a booking. `slotId` in the payload maps to the backend's
+ * `slotNumber` (both are e.g. "P02").
+ */
 export async function createBooking({ slotId, date, startTime, endTime, vehicleType, vehicleNumber }) {
   try {
-    const data = await request('/bookings', { method: 'POST', body: JSON.stringify({ slotNumber: slotId, bookingDate: date, startTime, endTime, vehicleType, vehicleNumber }) }, true);
-    return { success: true, booking: normalizeBooking(data.booking) };
-  } catch (error) {
-    return { success: false, message: error.message };
+    const res = await apiRequest('/api/bookings', {
+      method: 'POST',
+      body: { slotNumber: slotId, bookingDate: date, startTime, endTime, vehicleType, vehicleNumber },
+    });
+    return { success: true, booking: mapBooking(res.data.booking) };
+  } catch (err) {
+    return { success: false, message: err.message };
   }
 }
 
 export async function cancelBooking(bookingId) {
   try {
-    const booking = await request(`/bookings/${bookingId}/cancel`, { method: 'PATCH' }, true);
-    return { success: true, booking: normalizeBooking(booking) };
-  } catch (error) {
-    return { success: false, message: error.message };
+    const res = await apiRequest(`/api/bookings/${bookingId}/cancel`, { method: 'PATCH' });
+    return { success: true, booking: mapBooking(res.data) };
+  } catch (err) {
+    return { success: false, message: err.message };
   }
 }
 
 export function estimatePrice(pricePerHour, startTime, endTime) {
-  const toMinutes = (time) => {
-    const match = /(\d+):(\d+)\s?(AM|PM)/i.exec(time);
+  const toMinutes = (t) => {
+    const match = /(\d+):(\d+)\s?(AM|PM)/i.exec(t);
     if (!match) return null;
-    let hours = parseInt(match[1], 10) % 12;
-    if (match[3].toUpperCase() === 'PM') hours += 12;
-    return hours * 60 + parseInt(match[2], 10);
+    let [, h, m, period] = match;
+    h = parseInt(h, 10) % 12;
+    if (period.toUpperCase() === 'PM') h += 12;
+    return h * 60 + parseInt(m, 10);
   };
   const start = toMinutes(startTime);
   const end = toMinutes(endTime);
   if (start === null || end === null || end <= start) return pricePerHour;
-  return Math.max(1, Math.ceil((end - start) / 60)) * pricePerHour;
+  const hours = Math.max(1, Math.ceil((end - start) / 60));
+  return hours * pricePerHour;
 }
 
-export function getParkingHistory() {
-  return request('/sessions/my', {}, true).then((sessions) => sessions.map((session) => ({ ...session, id: session._id || session.id, slotId: session.slotNumber || session.slotId || 'Unassigned', entryTime: session.entryTime ? new Date(session.entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-', exitTime: session.exitTime ? new Date(session.exitTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-', duration: session.duration || (session.durationMinutes ? `${Math.floor(session.durationMinutes / 60)}h ${session.durationMinutes % 60}m` : '-'), status: session.status === 'completed' ? 'Completed' : session.status })));
+// ---- History (completed/cancelled bookings) -------------------------------
+
+export async function getParkingHistory() {
+  const res = await apiRequest('/api/bookings/my');
+  return res.data
+    .filter((b) => b.status === 'completed' || b.status === 'cancelled')
+    .map((b) => ({
+      id: b.bookingId,
+      date: b.bookingDate,
+      slotId: b.slotNumber,
+      entryTime: b.startTime,
+      exitTime: b.endTime,
+      duration: estimateDuration(b.startTime, b.endTime),
+      amount: b.amount,
+      status: b.status === 'completed' ? 'Completed' : 'Cancelled',
+    }));
 }
 
-export function getNotifications() {
-  return request('/notifications', {}, true).then((notifications) => notifications.map(normalizeNotification));
+function estimateDuration(startTime, endTime) {
+  const toMinutes = (t) => {
+    const match = /(\d+):(\d+)\s?(AM|PM)/i.exec(t);
+    if (!match) return null;
+    let [, h, m, period] = match;
+    h = parseInt(h, 10) % 12;
+    if (period.toUpperCase() === 'PM') h += 12;
+    return h * 60 + parseInt(m, 10);
+  };
+  const start = toMinutes(startTime);
+  const end = toMinutes(endTime);
+  if (start === null || end === null || end <= start) return '—';
+  const mins = end - start;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-export function markNotificationsRead() {
-  return request('/notifications/read-all', { method: 'PATCH' }, true).then((notifications) => notifications.map(normalizeNotification));
+// ---- Notifications ---------------------------------------------------------
+
+export async function getNotifications() {
+  const res = await apiRequest('/api/notifications');
+  return res.data.map(mapNotification);
 }
 
-export function subscribeToParkingUpdates(onStatusUpdate) {
-  const socket = io(API_URL || window.location.origin, { transports: ['websocket', 'polling'] });
-  socket.on('parkingStatusUpdated', onStatusUpdate);
-  return () => socket.close();
+export async function markNotificationsRead() {
+  const res = await apiRequest('/api/notifications/read-all', { method: 'PATCH' });
+  return res.data.map(mapNotification);
 }

@@ -5,12 +5,16 @@ const { calculateAmount } = require('../utils/calculateAmount');
 const parkingService = require('./parkingService');
 
 async function createBooking({ userId, slotNumber, vehicleNumber, vehicleType, bookingDate, startTime, endTime }) {
-  const reservation = await parkingService.reserveCapacity(slotNumber);
-  if (!reservation.ok) {
-    return { success: false, message: reservation.message };
+  // Finds a physical slot with no conflicting booking for this exact
+  // date/time window — this is what actually prevents double-booking
+  // (a slot booked 09:00-11:00 today is still bookable for 14:00-16:00
+  // the same day). See parkingService.findAvailableSlotForWindow().
+  const found = await parkingService.findAvailableSlotForWindow({ slotNumber, bookingDate, startTime, endTime });
+  if (!found.ok) {
+    return { success: false, message: found.message };
   }
 
-  const { slot, parking } = reservation;
+  const { slot } = found;
   const amount = calculateAmount(slot.pricePerHour, startTime, endTime);
   const bookingId = await generateBookingId();
 
@@ -31,8 +35,10 @@ async function createBooking({ userId, slotNumber, vehicleNumber, vehicleType, b
   const notification = await Notification.create({
     userId,
     type: 'success',
-    message: `Parking space reserved (booking ${booking.bookingId}). Slot ${slot.slotNumber} held for your vehicle.`,
+    message: `Parking space reserved (booking ${booking.bookingId}). Slot ${slot.slotNumber} held for your vehicle from ${startTime} to ${endTime} on ${bookingDate}.`,
   });
+
+  const parking = await parkingService.getOrCreateParking();
 
   return { success: true, booking, parking, notification };
 }
@@ -54,14 +60,17 @@ async function cancelBooking({ bookingId, userId, isAdmin }) {
 
   booking.status = 'cancelled';
   await booking.save();
-
-  const { parking } = await parkingService.releaseCapacity(booking.slotId);
+  // No slot-release bookkeeping needed anymore — "reserved" is computed
+  // live from non-cancelled bookings (see parkingService), so cancelling
+  // this booking automatically frees its time window.
 
   const notification = await Notification.create({
     userId: booking.userId,
     type: 'info',
-    message: `Booking ${booking.bookingId} was cancelled. The parking space is available again.`,
+    message: `Booking ${booking.bookingId} was cancelled. The parking space is available again for that time window.`,
   });
+
+  const parking = await parkingService.getOrCreateParking();
 
   return { success: true, booking, parking, notification };
 }
