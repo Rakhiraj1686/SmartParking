@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { Car, Mail, MapPinned, Phone, Save, User } from 'lucide-react';
 import { useParking } from '../context/ParkingContext';
+import { useToast } from '../context/ToastContext';
 
 export default function Profile() {
-  const { profile, pushToast } = useParking();
+  const { profile } = useParking();
+  const { pushToast } = useToast();
   const [form, setForm] = useState({
     name: profile.name,
     email: profile.email,

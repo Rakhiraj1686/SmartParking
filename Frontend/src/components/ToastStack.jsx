@@ -1,5 +1,5 @@
 import { CheckCircle2, Info, X, XCircle } from 'lucide-react';
-import { useParking } from '../context/ParkingContext';
+import { useToast } from '../context/ToastContext';
 
 const VARIANT = {
   success: { icon: CheckCircle2, cls: 'bg-brand-deep text-white' },
@@ -8,7 +8,7 @@ const VARIANT = {
 };
 
 export default function ToastStack() {
-  const { toasts, dismissToast } = useParking();
+  const { toasts, dismissToast } = useToast();
 
   return (
     <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 w-[calc(100%-2rem)] max-w-sm px-0 pointer-events-none">

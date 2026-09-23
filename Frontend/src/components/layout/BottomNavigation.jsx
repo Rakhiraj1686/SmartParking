@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { LayoutGrid, MapPinned, CalendarClock, History, User } from 'lucide-react';
 
 const NAV_ITEMS = [
-  { to: '/', label: 'Home', icon: LayoutGrid, end: true },
+  { to: '/dashboard', label: 'Home', icon: LayoutGrid, end: true },
   { to: '/parking', label: 'Parking', icon: MapPinned },
   { to: '/bookings', label: 'Bookings', icon: CalendarClock },
   { to: '/history', label: 'History', icon: History },

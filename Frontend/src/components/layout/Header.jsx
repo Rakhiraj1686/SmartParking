@@ -10,7 +10,7 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-30 bg-surface/90 backdrop-blur border-b border-line">
       <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3">
-        <Link to="/" className="flex items-center gap-2 md:hidden">
+        <Link to="/dashboard" className="flex items-center gap-2 md:hidden">
           <div className="h-8 w-8 rounded-lg bg-brand flex items-center justify-center">
             <ParkingSquare size={16} className="text-white" />
           </div>

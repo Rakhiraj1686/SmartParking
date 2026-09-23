@@ -1,8 +1,10 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutGrid, MapPinned, CalendarClock, History, User, ParkingSquare } from 'lucide-react';
+import { LayoutGrid, MapPinned, CalendarClock, History, User, ParkingSquare, LogOut } from 'lucide-react';
+import { useParking } from '../../context/ParkingContext';
+import { useAuth } from '../../context/AuthContext';
 
 const NAV_ITEMS = [
-  { to: '/', label: 'Home', icon: LayoutGrid, end: true },
+  { to: '/dashboard', label: 'Home', icon: LayoutGrid, end: true },
   { to: '/parking', label: 'Parking Map', icon: MapPinned },
   { to: '/bookings', label: 'My Bookings', icon: CalendarClock },
   { to: '/history', label: 'History', icon: History },
@@ -10,6 +12,9 @@ const NAV_ITEMS = [
 ];
 
 export default function Sidebar() {
+  const { slots } = useParking();
+  const { logout } = useAuth();
+
   return (
     <aside className="hidden md:flex md:flex-col md:w-64 shrink-0 bg-brand-deep text-white/90 min-h-screen">
       <div className="flex items-center gap-2.5 px-6 py-6">
@@ -40,16 +45,25 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="px-3 pb-6">
+      <div className="px-3 pb-6 space-y-3">
         <div className="rounded-xl bg-white/5 p-3.5 circuit-grid">
           <p className="text-[11px] text-white/50 leading-snug">
-            Sensor gateway status
+            Arduino gateway status
           </p>
           <div className="flex items-center gap-2 mt-1.5">
             <span className="h-2 w-2 rounded-full bg-available pulse-dot" />
-            <span className="text-xs text-white/80">36 slots reporting live</span>
+            <span className="text-xs text-white/80">
+              {slots.length} of {slots.length} bays tracked · aggregate count only
+            </span>
           </div>
         </div>
+
+        <button
+          onClick={logout}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium text-white/60 hover:bg-white/5 hover:text-white/90 transition-colors"
+        >
+          <LogOut size={16} /> Log out
+        </button>
       </div>
     </aside>
   );
