@@ -21,13 +21,23 @@ const iotRoutes = require('./routes/iotRoutes');
 
 const app = express();
 const server = http.createServer(app);
-const allowedOrigin = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+const configuredOrigins = (process.env.FRONTEND_URL || '')
+	.split(',')
+	.map((origin) => origin.trim().replace(/\/$/, ''))
+	.filter(Boolean);
 const allowedOrigins = [
-	allowedOrigin,
+	'http://localhost:5173',
+	'http://127.0.0.1:5173',
 	'https://smart-parking-beryl-eight.vercel.app',
+	...configuredOrigins,
 ];
+const corsOptions = {
+	origin: allowedOrigins,
+	optionsSuccessStatus: 204,
+};
 
-app.use(cors({ origin: allowedOrigins }));
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json());
 
 app.get('/api/health', (req, res) => {
