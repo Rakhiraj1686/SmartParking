@@ -5,9 +5,11 @@ import StatCard from '../components/StatCard';
 import ParkingGrid from '../components/ParkingGrid';
 import BookingModal from '../components/BookingModal';
 import LoadingState from '../components/LoadingState';
+import { useAuth } from '../context/AuthContext';
 import { useParking } from '../context/ParkingContext';
 
 export default function Dashboard() {
+  const { user } = useAuth();
   const { slots, loading, parkingArea } = useParking();
   const [activeSlot, setActiveSlot] = useState(null);
 
@@ -36,7 +38,9 @@ export default function Dashboard() {
       {/* Welcome + live clock */}
       <section className="rounded-2xl bg-brand-deep text-white p-5 sm:p-6 circuit-grid relative overflow-hidden">
         <p className="text-white/60 text-xs mb-1">{dateLabel} · {timeLabel}</p>
-        <h1 className="font-display text-xl sm:text-2xl font-semibold mb-1">Welcome back, Arjun</h1>
+        <h1 className="font-display text-xl sm:text-2xl font-semibold mb-1">
+          Welcome back, {user?.name?.split(' ')[0] || 'there'}
+        </h1>
         <p className="text-white/70 text-sm max-w-md">{parkingArea.name}</p>
 
         <div className="mt-5 flex items-center gap-4">
