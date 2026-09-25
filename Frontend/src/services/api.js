@@ -5,7 +5,9 @@
 // normalized error so callers can just try/catch.
 // -----------------------------------------------------------------------
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD ? 'https://smartparking-p41s.onrender.com' : 'http://localhost:5000');
 const TOKEN_KEY = 'smartpark_token';
 
 export function getToken() {
