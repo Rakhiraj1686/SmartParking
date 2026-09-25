@@ -11,7 +11,7 @@ export default function ToastStack() {
   const { toasts, dismissToast } = useToast();
 
   return (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-100 flex flex-col gap-2 w-[calc(100%-2rem)] max-w-sm px-0 pointer-events-none">
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 w-[calc(100%-2rem)] max-w-sm px-0 pointer-events-none">
       {toasts.map((t) => {
         const v = VARIANT[t.variant] ?? VARIANT.success;
         const Icon = v.icon;

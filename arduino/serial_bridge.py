@@ -19,11 +19,12 @@ import time
 import serial
 import requests
 
-SERIAL_PORT = "/dev/ttyUSB0"   # Windows: "COM3", macOS: "/dev/tty.usbmodemXXXX"
+SERIAL_PORT = "COM3"
+# SERIAL_PORT = "/dev/ttyUSB0"   # Windows: "COM3", macOS: "/dev/tty.usbmodemXXXX"
 BAUD_RATE = 9600
 
 BACKEND_URL = "http://localhost:5000/api/iot/status"
-IOT_API_KEY = "YOUR_IOT_API_KEY"  # must match backend/.env IOT_API_KEY
+IOT_API_KEY = "d6eab33a70854c9c860d23987d167f65"  # must match backend/.env IOT_API_KEY
 
 
 def post_status(occupied: int, total: int) -> None:
