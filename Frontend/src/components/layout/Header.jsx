@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom';
-import { Bell, MapPin, ParkingSquare } from 'lucide-react';
+import { Bell, ParkingSquare } from 'lucide-react';
 import { useParking } from '../../context/ParkingContext';
+import LocationBadge from '../LocationBadge';
 
 export default function Header() {
-  const { parkingArea, notifications, profile } = useParking();
+  const { notifications, profile } = useParking();
   const unread = notifications.filter((n) => !n.read).length;
   const initials = profile.name.split(' ').map((n) => n[0]).join('').slice(0, 2);
 
@@ -17,14 +18,12 @@ export default function Header() {
           <span className="font-display font-semibold">SmartPark</span>
         </Link>
 
-        <div className="hidden md:flex items-center gap-1.5 text-sm text-ink-soft">
-          <MapPin size={15} className="text-brand" />
-          <span>{parkingArea.name}</span>
+        <div className="hidden md:block">
+          <LocationBadge variant="full" />
         </div>
 
-        <div className="flex items-center gap-1.5 md:hidden text-xs text-ink-soft min-w-0">
-          <MapPin size={13} className="text-brand shrink-0" />
-          <span className="truncate max-w-[9rem]">{parkingArea.address.split(',')[0]}</span>
+        <div className="md:hidden min-w-0">
+          <LocationBadge variant="compact" />
         </div>
 
         <div className="flex items-center gap-3">

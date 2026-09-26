@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { ParkingProvider } from './context/ParkingContext';
+import { LocationProvider } from './context/LocationContext';
 import { AdminProvider } from './context/AdminContext';
 import ProtectedRoute from './components/routes/ProtectedRoute';
 import AdminRoute from './components/routes/AdminRoute';
@@ -46,9 +47,11 @@ function AppRoutes() {
       <Route
         element={
           <ProtectedRoute>
-            <ParkingProvider>
-              <AppLayout />
-            </ParkingProvider>
+            <LocationProvider>
+              <ParkingProvider>
+                <AppLayout />
+              </ParkingProvider>
+            </LocationProvider>
           </ProtectedRoute>
         }
       >

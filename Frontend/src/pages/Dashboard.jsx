@@ -1,17 +1,21 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CircleParking, Gauge, Sparkles, TrendingUp } from 'lucide-react';
+import { CircleParking, Gauge, LocateFixed, Sparkles, TrendingUp } from 'lucide-react';
 import StatCard from '../components/StatCard';
 import ParkingGrid from '../components/ParkingGrid';
 import BookingModal from '../components/BookingModal';
 import LoadingState from '../components/LoadingState';
-import { useAuth } from '../context/AuthContext';
+import LocationPicker from '../components/LocationPicker';
 import { useParking } from '../context/ParkingContext';
+import { useUserLocation } from '../context/LocationContext';
+import { useAuth } from '../context/AuthContext';
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { slots, loading, parkingArea } = useParking();
+  const { slots, loading } = useParking();
+  const { status, label, isFallback } = useUserLocation();
   const [activeSlot, setActiveSlot] = useState(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const stats = useMemo(() => {
     const total = slots.length;
@@ -30,6 +34,7 @@ export default function Dashboard() {
   const now = new Date();
   const timeLabel = now.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
   const dateLabel = now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' });
+  const firstName = user?.name?.trim().split(/\s+/)[0] || 'there';
 
   if (loading) return <LoadingState />;
 
@@ -38,10 +43,26 @@ export default function Dashboard() {
       {/* Welcome + live clock */}
       <section className="rounded-2xl bg-brand-deep text-white p-5 sm:p-6 circuit-grid relative overflow-hidden">
         <p className="text-white/60 text-xs mb-1">{dateLabel} · {timeLabel}</p>
-        <h1 className="font-display text-xl sm:text-2xl font-semibold mb-1">
-          Welcome back, {user?.name?.split(' ')[0] || 'there'}
-        </h1>
-        <p className="text-white/70 text-sm max-w-md">{parkingArea.name}</p>
+        <h1 className="font-display text-xl sm:text-2xl font-semibold mb-1">Welcome back, {firstName}</h1>
+
+        <button
+          type="button"
+          onClick={() => setPickerOpen(true)}
+          className="flex items-center gap-1.5 text-white/70 text-sm hover:text-white transition-colors"
+        >
+          {status === 'detecting' ? (
+            <LocateFixed size={14} className="animate-pulse" />
+          ) : (
+            <span>📍</span>
+          )}
+          <span>
+            {status === 'detecting'
+              ? 'Detecting your location…'
+              : isFallback
+                ? '📍 Select your location'
+                : `Your Location: ${label}`}
+          </span>
+        </button>
 
         <div className="mt-5 flex items-center gap-4">
           <div className="flex-1">
@@ -102,6 +123,8 @@ export default function Dashboard() {
       {activeSlot && (
         <BookingModal slot={activeSlot} onClose={() => setActiveSlot(null)} />
       )}
+
+      {pickerOpen && <LocationPicker onClose={() => setPickerOpen(false)} />}
     </div>
   );
 }
