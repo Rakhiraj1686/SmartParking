@@ -32,7 +32,17 @@ const allowedOrigins = [
 	...configuredOrigins,
 ];
 const corsOptions = {
-	origin: allowedOrigins,
+	origin(origin, callback) {
+		const isAllowed = !origin || allowedOrigins.includes(origin);
+		console.log(`[cors] origin=${origin || 'none'} allowed=${isAllowed}`);
+
+		if (isAllowed) {
+			return callback(null, true);
+		}
+
+		console.error(`[cors] blocked origin=${origin}`);
+		return callback(new Error(`CORS origin not allowed: ${origin}`));
+	},
 	optionsSuccessStatus: 204,
 };
 
@@ -82,6 +92,7 @@ async function startServer() {
 	await connectDB();
 	server.listen(port, () => {
 		console.log(`[server] Smart Parking API listening on port ${port}`);
+		console.log(`[server] CORS allowed origins: ${allowedOrigins.join(', ')}`);
 	});
 }
 

@@ -6,8 +6,8 @@
 // -----------------------------------------------------------------------
 
 const API_URL =
-  import.meta.env.VITE_API_URL ||
-  (import.meta.env.PROD ? 'https://smartparking-p41s.onrender.com' : 'http://localhost:5000');
+  import.meta.env.VITE_API_URL ??
+  (import.meta.env.PROD ? 'https://smartparking-p41s.onrender.com' : '');
 const TOKEN_KEY = 'smartpark_token';
 
 export function getToken() {
